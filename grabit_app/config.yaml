@@ -1,0 +1,30 @@
+# Konfiguration der Anwendung (wird von app.py eingelesen).
+# Hier stehen alle Werte, die vom Aufbau des echten Arms abhängen, damit sie nicht im
+# Code stehen. Einrückung mit Leerzeichen (keine Tabs).
+
+# --- MQTT: Verbindung zur Arm-Steuerung (ESP32 über den Broker) ---
+mqtt:
+    host: "10.20.3.82"      # IP-Adresse des MQTT-Brokers
+    port: 1883              # Port des Brokers (1883 = Standard ohne Verschlüsselung)
+    topic: "Robo/Command"   # Topic für die Befehle; Nachricht = "<Motornummer> <Winkel>"
+    rate_hz: 25             # Sendetakt in Hertz (25 -> alle 40 ms ein Takt)
+    max_step_deg: 2.0       # Rampe: größte Änderung eines Servos pro Takt in Grad (2 Grad * 25 Hz = 50 Grad/s)
+
+# --- Servos: Umrechnung von Gelenkwinkel (Modell) in Servowinkel (echter Arm) ---
+# Formel (in jointToServo, app.py):   servo = 90 + direction * q + offset
+#   q          Gelenkwinkel des Modells in Grad (0 = Nullstellung, Arm senkrecht)
+#   servo      Servowinkel in Grad, wird danach auf 0..180 begrenzt
+#   motor      Motornummer in der Nachricht (0..5, Reihenfolge der Gelenke im URDF)
+#   direction  +1: ein positiver Gelenkwinkel erhöht den Servowinkel; -1: er verringert ihn
+#              (hängt davon ab, wie der Servo eingebaut ist)
+#   offset     Korrektur in Grad, damit der Servo in der Nullstellung des Modells (q = 0)
+#              tatsächlich in der Nullstellung des Arms steht
+# Servowinkel in der Nullstellung (q = 0) = 90 + offset; steht jeweils hinter dem Servo.
+# Die Gelenknamen müssen genau den Namen im URDF entsprechen.
+servos:
+    base_yaw:       {motor: 0, direction: 1, offset: -1.0}     # Drehteller; Nullstellung bei Servo 89
+    shoulder_pitch: {motor: 1, direction: 1, offset: -4.0}     # Schulter; Nullstellung bei Servo 86
+    elbow_pitch:    {motor: 2, direction: -1, offset: 0.0}     # Ellbogen; Nullstellung bei Servo 90
+    wrist_pitch:    {motor: 3, direction: -1, offset: 85.0}    # Handgelenk kippen; Nullstellung (gerade) bei Servo 175
+    wrist_roll:     {motor: 4, direction: 1, offset: 0.0}      # Greifer drehen; Nullstellung bei Servo 90
+    gripper:        {motor: 5, direction: -1, offset: -20.0}   # Greifer; Modell 0 Grad = offen = Servo 70, schließt zu kleineren Servowinkeln

@@ -1,0 +1,198 @@
+<?xml version="1.0"?>
+<!--
+  Joy-IT Grab-it (Robot02), vereinfachtes Modell
+
+  URDF (Unified Robot Description Format) beschreibt einen Roboter als XML-Datei aus
+  zwei Bausteinen:
+    <link>   ein starres Bauteil (hier mit einfacher Form für die Anzeige: Quader, Zylinder)
+    <joint>  die Verbindung zweier Links (parent -> child). Wichtige Angaben:
+               origin  Lage des Gelenks relativ zum Parent-Link (xyz in Metern, rpy = Drehung
+                       in Radiant; hier überall 0, es zählt nur die Länge in z)
+               axis    Drehachse des Gelenks im eigenen Koordinatensystem
+               limit   Gelenkgrenzen lower/upper in Radiant (effort/velocity sind hier nur
+                       Pflichtangaben und werden von der Anzeige nicht benutzt)
+               mimic   koppelt ein Gelenk an ein anderes (hier: zweiter Greiferfinger)
+
+  Aufbau der Kette:
+    base_link -> turntable -> upper_arm -> forearm -> wrist -> gripper_base
+                                                                  |-> finger_left
+                                                                  |-> finger_right
+                                                                  `-> tcp
+
+  Alle Längen in Metern, alle Winkel in Radiant.
+  Koordinatensystem: x vorne, y links, z oben.
+  Nullstellung (alle Gelenke 0): Arm senkrecht, TCP bei z = 0.42 m
+    (0.05 + 0.04 + 0.105 + 0.095 + 0.04 + 0.09).
+  Positiver Winkel an Schulter/Ellbogen/Handgelenk kippt nach vorne (+x).
+  Mit "MESSEN" markierte Werte sind Hersteller Werte und am Arm nachzumessen
+  (Achsmitte zu Achsmitte).
+  Die Maße müssen mit den Konstanten in kinematics.py übereinstimmen.
+-->
+<robot name="grabit">
+
+  <!-- Farben für die Anzeige (rgba = rot, grün, blau, Deckkraft) -->
+  <material name="grau"><color rgba="0.55 0.55 0.58 1"/></material>
+  <material name="blau"><color rgba="0.15 0.35 0.75 1"/></material>
+  <material name="orange"><color rgba="0.95 0.55 0.1 1"/></material>
+  <material name="rot"><color rgba="0.85 0.15 0.15 1"/></material>
+
+  <!-- Grundplatte (Höhe 0.05 m bis zum Drehteller). Ihr Koordinatensystem liegt auf dem Boden.
+       Die <visual>-Angaben (origin, Form, Farbe) betreffen nur die Darstellung: der Quader
+       wird um 0.025 m angehoben, damit er auf dem Boden steht statt halb darunter. -->
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0.025" rpy="0 0 0"/>
+      <geometry><box size="0.12 0.12 0.05"/></geometry>
+      <material name="grau"/>
+    </visual>
+  </link>
+
+  <!-- Gelenk 1: Drehteller (q1), dreht um z (senkrechte Achse) -> Arm nach links/rechts schwenken.
+       Servo/Motor 0. Grenzen: -1.5708 .. 1.5708 rad = -90 .. +90 Grad. -->
+  <joint name="base_yaw" type="revolute">
+    <parent link="base_link"/>
+    <child link="turntable"/>
+    <origin xyz="0 0 0.05" rpy="0 0 0"/> <!-- MESSEN: Grundplatte bis Drehteller -->
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.5708" upper="1.5708" effort="2.1" velocity="1.0"/>
+  </joint>
+
+  <!-- Drehteller (0.04 m bis zur Schulterachse) -->
+  <link name="turntable">
+    <visual>
+      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.045" length="0.04"/></geometry>
+      <material name="blau"/>
+    </visual>
+  </link>
+
+  <!-- Gelenk 2: Schulter (q2), dreht um y -> Oberarm nach vorne kippen (positiv = nach vorne).
+       Servo/Motor 1. Grenzen: -90 .. +90 Grad. -->
+  <joint name="shoulder_pitch" type="revolute">
+    <parent link="turntable"/>
+    <child link="upper_arm"/>
+    <origin xyz="0 0 0.04" rpy="0 0 0"/> <!-- MESSEN: Drehteller bis Schulterachse -->
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.5708" upper="1.5708" effort="2.1" velocity="1.0"/>
+  </joint>
+
+  <!-- Oberarm, L1 = 0.105 m (Der Quader ist um die halbe Länge nach oben verschoben,
+       damit er von der Schulterachse bis zum Ellbogen reicht.) -->
+  <link name="upper_arm">
+    <visual>
+      <origin xyz="0 0 0.0525" rpy="0 0 0"/>
+      <geometry><box size="0.03 0.04 0.105"/></geometry>
+      <material name="orange"/>
+    </visual>
+  </link>
+
+  <!-- Gelenk 3: Ellbogen (q3), dreht um y -> Unterarm kippen. Servo/Motor 2. Grenzen: -90 .. +90 Grad. -->
+  <joint name="elbow_pitch" type="revolute">
+    <parent link="upper_arm"/>
+    <child link="forearm"/>
+    <origin xyz="0 0 0.105" rpy="0 0 0"/> <!-- MESSEN: L1 Schulter bis Ellbogen -->
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.5708" upper="1.5708" effort="2.1" velocity="1.0"/>
+  </joint>
+
+  <!-- Unterarm, L2 = 0.095 m -->
+  <link name="forearm">
+    <visual>
+      <origin xyz="0 0 0.0475" rpy="0 0 0"/>
+      <geometry><box size="0.025 0.035 0.095"/></geometry>
+      <material name="blau"/>
+    </visual>
+  </link>
+
+  <!-- Gelenk 4: Handgelenk kippen (q4), dreht um y -> Greifer kippen. Servo/Motor 3.
+       Grenzen: -0.0873 .. 3.0543 rad = -5 .. +175 Grad. Das ist der Bereich, der sich aus
+       dem Servobereich 0..180 Grad mit Offset 85 und Richtung -1 ergibt (servo = 175 - q4);
+       siehe config.yaml. Die Obergrenze ist mechanisch nicht durch das Modell geprüft. -->
+  <joint name="wrist_pitch" type="revolute">
+    <parent link="forearm"/>
+    <child link="wrist"/>
+    <origin xyz="0 0 0.095" rpy="0 0 0"/> <!-- MESSEN: L2 Ellbogen bis Handgelenk -->
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.0873" upper="3.0543" effort="2.1" velocity="1.0"/>
+  </joint>
+
+  <!-- Handgelenk (0.04 m bis zum Drehservo) -->
+  <link name="wrist">
+    <visual>
+      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <geometry><box size="0.03 0.04 0.04"/></geometry>
+      <material name="orange"/>
+    </visual>
+  </link>
+
+  <!-- Gelenk 5: Greifer drehen (q5), dreht um die Greiferachse (z) -> Greifer um sich selbst drehen.
+       Servo/Motor 4. Grenzen: -90 .. +90 Grad. Verändert die TCP-Position nicht, weil der TCP
+       auf dieser Achse liegt. -->
+  <joint name="wrist_roll" type="revolute">
+    <parent link="wrist"/>
+    <child link="gripper_base"/>
+    <origin xyz="0 0 0.04" rpy="0 0 0"/> <!-- MESSEN: Handgelenk bis Drehservo -->
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.5708" upper="1.5708" effort="2.1" velocity="1.0"/>
+  </joint>
+
+  <!-- Greiferkörper (bis 0.09 m zum TCP) -->
+  <link name="gripper_base">
+    <visual>
+      <origin xyz="0 0 0.01" rpy="0 0 0"/>
+      <geometry><box size="0.04 0.05 0.02"/></geometry>
+      <material name="grau"/>
+    </visual>
+  </link>
+
+  <!-- Gelenk 6: Greifer (0 bis 40 Grad), erster Finger. Servo/Motor 5.
+       Bei 0 Grad ist der Greifer offen, mit steigendem Winkel schließt er.
+       Die Finger sitzen 15 mm seitlich (y) der Mitte, 20 mm über dem Greiferkörper, und
+       drehen um die x-Achse. 0.6981 rad = 40 Grad. -->
+  <joint name="gripper" type="revolute">
+    <parent link="gripper_base"/>
+    <child link="finger_left"/>
+    <origin xyz="0 0.015 0.02" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0" upper="0.6981" effort="1.0" velocity="1.0"/>
+  </joint>
+
+  <link name="finger_left">
+    <visual>
+      <origin xyz="0 0 0.035" rpy="0 0 0"/>
+      <geometry><box size="0.012 0.008 0.07"/></geometry>
+      <material name="rot"/>
+    </visual>
+  </link>
+
+  <!-- Zweiter Finger: gekoppelt (mimic), spiegelt die Bewegung des ersten.
+       Sein Winkel ist immer das (-1)-fache des Winkels von "gripper"; er hat deshalb keinen
+       eigenen Servo und keinen eigenen Regler. -->
+  <joint name="gripper_mimic" type="revolute">
+    <parent link="gripper_base"/>
+    <child link="finger_right"/>
+    <origin xyz="0 -0.015 0.02" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.6981" upper="0" effort="1.0" velocity="1.0"/>
+    <mimic joint="gripper" multiplier="-1" offset="0"/>
+  </joint>
+
+  <link name="finger_right">
+    <visual>
+      <origin xyz="0 0 0.035" rpy="0 0 0"/>
+      <geometry><box size="0.012 0.008 0.07"/></geometry>
+      <material name="rot"/>
+    </visual>
+  </link>
+
+  <!-- TCP (Tool Center Point): Punkt zwischen den Fingerspitzen, fest am Greifer.
+       Dieser Punkt wird in der App mit der Maus verschoben. Ein Link ohne <visual> wird
+       nicht angezeigt; ein <joint type="fixed"> ist starr und hat keine Achse und keine Grenzen. -->
+  <link name="tcp"/>
+  <joint name="tcp_joint" type="fixed">
+    <parent link="gripper_base"/>
+    <child link="tcp"/>
+    <origin xyz="0 0 0.09" rpy="0 0 0"/> <!-- MESSEN: Drehservo bis TCP -->
+  </joint>
+
+</robot>
